@@ -1,8 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMqttStatus } from '@/lib/mqtt';
+import fs from 'fs/promises';
+import path from 'path';
 
-// 預設密碼（實際應用中應該從環境變數或資料庫讀取）
-const DEFAULT_PASSWORD = '123456';
+// 設定檔案路徑
+const SETTINGS_PATH = path.join(process.cwd(), 'data', 'setting.json');
+
+async function getStoredPassword(): Promise<string> {
+  try {
+    const data = await fs.readFile(SETTINGS_PATH, 'utf-8');
+    const settings = JSON.parse(data);
+    return settings.loginPassword || '123456'; // 後備預設密碼
+  } catch (error) {
+    console.error('讀取設定檔案失敗，使用預設密碼:', error);
+    return '123456'; // 預設密碼
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,14 +37,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('收到登入請求 - 密碼:', password);
+    console.log('收到登入請求');
 
-    // 驗證密碼（實際應用中應該使用加密比對）
-    if (password === DEFAULT_PASSWORD) {
+    // 從設定檔案讀取密碼
+    const storedPassword = await getStoredPassword();
+
+    // 驗證密碼
+    if (password === storedPassword) {
       console.log('✅ 密碼驗證成功');
-      return NextResponse.json({ 
+      return NextResponse.json({
         success: true,
-        message: '登入成功' 
+        message: '登入成功'
       });
     } else {
       console.log('❌ 密碼驗證失敗');

@@ -172,10 +172,15 @@ export default function OperationPanel() {
 
   // 初始化 WebSocket
   useEffect(() => {
-    connectWebSocket();
+    const timer = setTimeout(() => {
+      console.log('🔄 开始初始化 WebSocket 连接...');
+      connectWebSocket();
+    }, 500);
 
     return () => {
+      clearTimeout(timer);
       if (wsRef.current) {
+        console.log('🧹 清理 WebSocket 连接');
         wsRef.current.close();
       }
       if (reconnectTimerRef.current) {
@@ -185,41 +190,95 @@ export default function OperationPanel() {
   }, []);
 
   const connectWebSocket = () => {
+    // 清除現有的重連計時器
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/operation`;
 
-    console.log('連接到 WebSocket:', wsUrl);
+    // 獲取 clientId
+    let clientId = '';
+    try {
+      clientId = sessionStorage.getItem('mqttClientId') || '';
+      console.log('從 sessionStorage 獲取 clientId:', clientId);
+    } catch (e) {
+      console.error('讀取 sessionStorage (clientId) 失敗:', e);
+    }
+    if (!clientId) {
+      clientId = 'default_client_' + Math.floor(Math.random() * 1000);
+      console.warn('⚠️ 未找到 clientId，使用臨時值:', clientId);
+    }
+
+    // 獲取 plugId (這對於 MQTT 路由至關重要)
+    let plugId = '';
+    try {
+      plugId = sessionStorage.getItem('plugId') || '';
+      console.log('從 sessionStorage 獲取 plugId:', plugId);
+    } catch (e) {
+      console.error('讀取 sessionStorage (plugId) 失敗:', e);
+    }
+
+    // 如果沒有 plugId，連線會被 Server 拒絕或無法訂閱正確 Topic
+    if (!plugId) {
+      console.error('❌ 嚴重錯誤：找不到 Plug ID，無法建立連線');
+      // 這裡可以使用一個預設值方便測試，但正式環境建議阻擋
+      plugId = 'default_plug';
+    }
+
+    // 構建 WebSocket URL，包含 plugId 參數
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/operation?clientId=${encodeURIComponent(clientId)}&plugId=${encodeURIComponent(plugId)}`;
+
+    console.log('🔧 開始連接 WebSocket:', wsUrl);
+
+    // 如果已經有 WebSocket 連接，先關閉它
+    if (wsRef.current) {
+      console.log('關閉現有的 WebSocket 連接');
+      wsRef.current.close();
+      wsRef.current = null;
+    }
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('✅ WebSocket 已連線');
+      console.log('✅ WebSocket 連接已成功建立');
       setMqttConnected(true);
-      // 請求初始數據
-      sendCommand('get_sensors');
+      // 暫時不發送任何訊息，只保持連接
+      // 伺服器端會在500ms後發送初始數據
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('📨 收到訊息:', data);
+        console.log('📨 收到 WebSocket 訊息:', data);
         handleMessage(data);
       } catch (e) {
-        console.error('解析訊息失敗:', e);
+        console.error('解析 WebSocket 訊息失敗:', e);
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('❌ WebSocket 錯誤:', error);
+    ws.onerror = (error: Event) => {
+      console.error('❌ WebSocket 發生錯誤:', error);
+      // 嘗試獲取錯誤訊息
+      const errorMessage = (error as ErrorEvent).message || '未知錯誤';
+      console.error('錯誤詳情:', {
+        type: error.type,
+        message: errorMessage,
+        timeStamp: error.timeStamp
+      });
       setMqttConnected(false);
     };
 
-    ws.onclose = () => {
-      console.log('❌ WebSocket 已斷線');
+    ws.onclose = (event: CloseEvent) => {
+      const reason = event.reason || '未知原因';
+      console.log('❌ WebSocket 連接已關閉，代碼:', event.code, '原因:', reason, 'wasClean:', event.wasClean);
       setMqttConnected(false);
-      // 5秒後重連
-      reconnectTimerRef.current = setTimeout(connectWebSocket, 5000);
+      // 如果不是正常關閉，5秒後重連
+      if (event.code !== 1000) {
+        console.log('⏳ 5秒後嘗試重新連接...');
+        reconnectTimerRef.current = setTimeout(connectWebSocket, 5000);
+      }
     };
   };
 
