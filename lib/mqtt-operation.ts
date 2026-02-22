@@ -107,37 +107,42 @@ function subscribeMqttTopics(clientId: string) {
     currentPlugId = 'defaultPlug';
   }
 
-  // 訂閱廣播主題（QoS 1）
-  const broadcastTopics = [
+  // 訂閱操作相關廣播主題（QoS 1）
+  // 注意：電壓(voltage)和設備名稱(plugName)由 mqtt.ts 訂閱 (QoS 0)
+  // 這裡只訂閱操作面板需要的實時數據
+  const operationTopics = [
     MQTT_TOPICS.RELAY_STATE(currentPlugId),
     MQTT_TOPICS.RELAY_NAME(currentPlugId),
     MQTT_TOPICS.TEMPERATURE(currentPlugId),
-    MQTT_TOPICS.VOLTAGE(currentPlugId),
-    MQTT_TOPICS.PLUG_NAME(currentPlugId),
   ];
 
-  broadcastTopics.forEach(topic => {
+  operationTopics.forEach(topic => {
     mqttClient?.subscribe(topic, { qos: 1 }, (err) => {
       if (!err) {
-        console.log(`📩 已訂閱廣播主題 [QoS 1]: ${topic}`);
+        console.log(`📩 已訂閱操作主題 [QoS 1]: ${topic}`);
       } else {
         console.error(`訂閱失敗: ${topic}`, err);
       }
     });
   });
 
-  // 設置訊息處理
+  // 設置訊息處理（只處理操作相關主題）
+  // 注意：mqtt.ts 已經設置了全域的 message 處理器，這裡需要確保不衝突
+  // 我們使用獨立的事件監聽器來處理操作相關訊息
   mqttClient.on('message', handleMqttMessage);
 
   // 請求初始數據（使用新版請求主題）
   const requestTopic = MQTT_TOPICS.REQUEST(currentPlugId, clientId);
-  publishMqtt(requestTopic, JSON.stringify({ action: 'request_sensors' }), { qos: 1 });
+  publishMqtt(requestTopic, JSON.stringify({ 
+    type: 'request_all',
+    timestamp: Date.now()
+  }), { qos: 1 });
 }
 
 // 處理 MQTT 訊息
 function handleMqttMessage(topic: string, message: Buffer) {
   const data = message.toString();
-  console.log(`📨 收到 MQTT 訊息 [${topic}]:`, data);
+  console.log(`📨 [Operation] 收到 MQTT 訊息 [${topic}]:`, data);
 
   // 嘗試解析 JSON，如果失敗則視為純文字
   let parsedData: any;
@@ -147,7 +152,8 @@ function handleMqttMessage(topic: string, message: Buffer) {
     parsedData = data;
   }
 
-  // 處理廣播主題（ESP32 → All Clients）
+  // 只處理操作相關的主題，避免與 mqtt.ts 衝突
+  // mqtt.ts 負責處理電壓(voltage)和設備名稱(plugName)
   if (topic === MQTT_TOPICS.RELAY_STATE(currentPlugId)) {
     handleBroadcastRelayState(parsedData);
   } else if (topic === MQTT_TOPICS.RELAY_NAME(currentPlugId)) {
@@ -155,13 +161,8 @@ function handleMqttMessage(topic: string, message: Buffer) {
   } else if (topic === MQTT_TOPICS.TEMPERATURE(currentPlugId)) {
     // 廣播溫度主題
     handleBroadcastTemperature(parsedData);
-  } else if (topic === MQTT_TOPICS.VOLTAGE(currentPlugId)) {
-    // 廣播電壓主題
-    handleBroadcastVoltage(parsedData);
-  } else if (topic === MQTT_TOPICS.PLUG_NAME(currentPlugId)) {
-    // 廣播設備名稱主題
-    handleBroadcastPlugName(parsedData);
   }
+  // 電壓和設備名稱由 mqtt.ts 處理，這裡忽略
 }
 
 // 處理廣播繼電器狀態

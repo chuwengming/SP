@@ -82,13 +82,14 @@ export async function connectMqtt(config: MqttConfig): Promise<{ success: boolea
         username: config.username || undefined,
         password: config.password || undefined,
         clean: true,
-        reconnectPeriod: 0, // 不自動重連，由前端控制
+        reconnectPeriod: 30000, // 30秒自動重連
         connectTimeout: 10000,
+        keepalive: 60,
       });
 
       // 連線成功處理
       mqttClient.on('connect', async () => {
-        console.log('MQTT 連線成功');
+        console.log('✅ MQTT 連線成功');
         currentClientId = config.clientId;
 
         // 更新設定檔案中的 clientId
@@ -131,6 +132,21 @@ export async function connectMqtt(config: MqttConfig): Promise<{ success: boolea
       mqttClient.on('error', (error) => {
         console.error('❌ MQTT 連線錯誤:', error);
         resolve({ success: false, message: `連線錯誤: ${error.message}` });
+      });
+
+      // 斷線處理 - 顯示日誌
+      mqttClient.on('close', () => {
+        console.warn('⚠️ MQTT 連線已斷開');
+      });
+
+      // 斷線處理 - 顯示日誌
+      mqttClient.on('offline', () => {
+        console.warn('⚠️ MQTT 離線');
+      });
+
+      // 重新連接處理
+      mqttClient.on('reconnect', () => {
+        console.log('🔄 MQTT 正在重新連接...');
       });
 
       // 接收訊息並更新內存變數

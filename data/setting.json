@@ -1,12 +1,11 @@
 {
+    "plugName": "SmartPlug",
+    "loginPassword": "123456",
     "mqtt": {
         "broker": "broker.emqx.io",
         "port": "8083",
-        "clientId": "smartplug_0a4a0f94",
+        "clientId": "smartplug_random",
         "username": "",
         "password": ""
-    },
-    "plugName": "SmartPlug",
-    "loginPassword": "123456",
-    "plugId": "sp123456"
+    }
 }
