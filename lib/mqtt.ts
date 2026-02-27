@@ -17,6 +17,8 @@ export const MqttTopics = {
   // 其他 Topic 定義
   temperature: (plugId: string) => `smartplug/${plugId}/temperature`,
   relayState: (plugId: string) => `smartplug/${plugId}/relay/state`,
+  // 繼電器名稱: smartplug/{plugId}/relay/name
+  relayName: (plugId: string) => `smartplug/${plugId}/relay/name`,
 };
 
 // 更新設定檔案中的 clientId
@@ -164,7 +166,7 @@ export async function connectMqtt(config: MqttConfig): Promise<{ success: boolea
       // 接收訊息並更新內存變數
       mqttClient.on('message', (topic, message) => {
         const msgStr = message.toString();
-        // console.log(`📨 Lib 收到 [${topic}]:`, msgStr); 
+        console.log(`📨 Lib 收到 MQTT 訊息 [${topic}]:`, msgStr); 
 
         try {
           const jsonData = JSON.parse(msgStr);
@@ -172,16 +174,31 @@ export async function connectMqtt(config: MqttConfig): Promise<{ success: boolea
           // 更新電壓快取
           if (topic === MqttTopics.voltage(currentPlugId)) {
             // 兼容 {"voltage": 110} 或 直接傳數字/字串
-            voltageData = jsonData.voltage !== undefined ? jsonData.voltage : jsonData;
-            // console.log(`⚡ 電壓數據已更新: ${voltageData}V`);
+            const newVoltage = jsonData.voltage !== undefined ? jsonData.voltage : jsonData;
+            console.log(`⚡ 電壓數據已更新: ${newVoltage}V (之前: ${voltageData}V)`);
+            voltageData = newVoltage;
           }
           // 更新名稱快取
           else if (topic === MqttTopics.plugName(currentPlugId)) {
-            plugNameData = jsonData.plugName || jsonData || 'SmartPlug';
+            const newPlugName = jsonData.plugName || jsonData || 'SmartPlug';
+            console.log(`🏷️ 插座名稱已更新: ${newPlugName} (之前: ${plugNameData})`);
+            plugNameData = newPlugName;
+          }
+          // 記錄其他主題的訊息（僅除錯用）
+          else if (topic === MqttTopics.temperature(currentPlugId)) {
+            console.log(`🌡️ 溫度數據: ${jsonData.temperature}°C`);
           }
 
         } catch (e) {
           console.error('解析 MQTT 訊息失敗:', e);
+          // 如果不是 JSON，可能是純數字/字串電壓值
+          if (topic === MqttTopics.voltage(currentPlugId)) {
+            const voltageValue = parseFloat(msgStr);
+            if (!isNaN(voltageValue)) {
+              console.log(`⚡ 純數字電壓數據: ${voltageValue}V`);
+              voltageData = voltageValue;
+            }
+          }
         }
       });
 
@@ -217,6 +234,18 @@ export function getPlugName(): string {
 // 獲取電壓 (API Route 會呼叫此函數)
 export function getVoltage(): number {
   return voltageData;
+}
+
+// 設置電壓數據（供 server.js 調用）
+export function setVoltage(voltage: number): void {
+  console.log(`⚡ [外部設置] 電壓數據更新: ${voltage}V (之前: ${voltageData}V)`);
+  voltageData = voltage;
+}
+
+// 設置插座名稱（供 server.js 調用）
+export function setPlugName(name: string): void {
+  console.log(`🏷️ [外部設置] 插座名稱更新: ${name} (之前: ${plugNameData})`);
+  plugNameData = name;
 }
 
 // 發布訊息到 MQTT

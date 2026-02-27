@@ -37,15 +37,46 @@ export default function OperationPanel() {
     mqttPwd: ''
   });
 
-  // 載入設定
+  // 從設定檔案載入繼電器名稱
+  const loadRelayNamesFromSettings = async () => {
+    try {
+      console.log('🔧 開始載入繼電器名稱設定...');
+      const response = await fetch('/data/setting.json');
+      if (!response.ok) {
+        throw new Error('無法讀取設定檔案');
+      }
+      const settings = await response.json();
+      console.log('📋 讀取到的設定:', settings);
+
+      if (settings.relayNames) {
+        setRelays(prev => prev.map(relay => ({
+          ...relay,
+          name: settings.relayNames[`relay${relay.id + 1}`] || `Relay ${relay.id + 1}`
+        })));
+        console.log('✅ 繼電器名稱已從設定檔案載入:', settings.relayNames);
+      } else {
+        console.warn('⚠️ 設定檔案中未找到 relayNames 欄位，使用預設名稱');
+      }
+    } catch (error) {
+      console.error('❌ 載入繼電器名稱失敗:', error);
+      // 不顯示錯誤訊息，使用預設名稱即可
+    }
+  };
+
+  // 頁面初始化時載入繼電器名稱
+  useEffect(() => {
+    loadRelayNamesFromSettings();
+  }, []);
+
+  // 載入系統設定（用於系統設定頁面）
   useEffect(() => {
     if (currentPage === 'system-settings') {
-      loadSettings();
+      loadSystemSettings();
     }
   }, [currentPage]);
 
-  // 載入設定函數
-  const loadSettings = async () => {
+  // 載入系統設定函數
+  const loadSystemSettings = async () => {
     try {
       const response = await fetch('/api/settings');
       if (!response.ok) {
@@ -63,7 +94,7 @@ export default function OperationPanel() {
         mqttPwd: '' // 密碼不顯示，留空
       });
     } catch (error) {
-      console.error('載入設定失敗:', error);
+      console.error('載入系統設定失敗:', error);
       alert('載入設定失敗，請稍後再試');
     }
   };
@@ -114,7 +145,7 @@ export default function OperationPanel() {
       if (response.ok && result.success) {
         alert('設定已儲存成功！');
         // 重新載入設定以確保同步
-        loadSettings();
+        loadSystemSettings();
       } else {
         throw new Error(result.error || '儲存失敗');
       }
@@ -126,30 +157,44 @@ export default function OperationPanel() {
 
   // 回復原廠設定
   const handleResetSettings = async () => {
-    if (!confirm('確定要回復原廠設定嗎？這將會重置所有設定為預設值。')) {
+    if (!confirm('確定要回復原廠設定嗎？這將會重置所有設定為預設值，並透過 MQTT 更新設備名稱和繼電器名稱。')) {
       return;
     }
 
     try {
-      // 從原廠設定 API 獲取預設值
-      const factoryResponse = await fetch('/api/settings/factory');
-      if (!factoryResponse.ok) {
-        throw new Error('無法讀取原廠設定');
-      }
-      const factorySettings = await factoryResponse.json();
-
-      // 使用原廠設定值更新當前設定
-      const response = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(factorySettings)
+      // 呼叫新的回復原廠設定 API (POST 方法)
+      const response = await fetch('/api/settings/factory', {
+        method: 'POST'
       });
 
       const result = await response.json();
 
       if (response.ok && result.success) {
-        alert('已回復原廠設定！');
-        loadSettings();
+        let message = '✅ 原廠設定已回復完成！\n\n';
+        
+        // 檢查 MQTT 廣播結果
+        if (result.broadcastResults && result.broadcastResults.length > 0) {
+          const successfulBroadcasts = result.broadcastResults.filter((r: any) => r.success).length;
+          const totalBroadcasts = result.broadcastResults.length;
+          
+          message += `MQTT 廣播結果：${successfulBroadcasts}/${totalBroadcasts} 個訊息成功發送\n`;
+          
+          if (successfulBroadcasts < totalBroadcasts) {
+            message += '⚠️  部分 MQTT 廣播失敗，請檢查 MQTT 連線狀態\n';
+          }
+        }
+        
+        message += `\n新的設定已儲存：\n`;
+        message += `• 插座名稱：${result.settings.plugName || 'SmartPlug'}\n`;
+        message += `• 繼電器名稱：已重置為原廠設定\n`;
+        message += `• PlugID：${result.plugId} (保留不變)`;
+        
+        alert(message);
+        
+        // 重新載入設定以確保同步
+        loadSystemSettings();
+        // 重新載入繼電器名稱
+        loadRelayNamesFromSettings();
       } else {
         throw new Error(result.error || '回復失敗');
       }

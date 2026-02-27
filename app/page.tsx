@@ -119,13 +119,7 @@ export default function LoginPage() {
     try {
       const response = await fetch('/api/voltage');
       const data = await response.json();
-
-      // 根據回傳值判斷顯示
-      if (data.voltage !== undefined && data.voltage !== 0) {
-        setVoltage(`AC-${data.voltage}V`);
-      } else {
-        setVoltage('AC-0V (無數據)');
-      }
+      setVoltage(`AC-${data.voltage}V`);
     } catch (error) {
       console.error('獲取電壓時發生錯誤:', error);
       setVoltage('無法載入電壓');
@@ -137,22 +131,57 @@ export default function LoginPage() {
   // 儲存 PlugID 到設定檔案 (API)
   const savePlugIdToSettings = async (id: string) => {
     try {
-      // 簡單起見，讀取現有 settings 合併後寫回
-      // 注意：這裡依賴 useEffect 已經讀取過 settings
-      const newSettings = { ...settings, plugId: id };
+      console.log('💾 開始儲存 PlugID:', id);
+      console.log('🔧 當前 MQTT 配置:', mqttConfig);
+      
+      // 先讀取當前的完整設定
+      const response = await fetch('/api/settings');
+      if (!response.ok) {
+        throw new Error('無法讀取當前設定');
+      }
+      const currentSettings = await response.json();
+      console.log('📋 當前設定:', currentSettings);
+      
+      // 如果 clientId 為空，生成一個隨機的
+      let finalClientId = mqttConfig.clientId || currentSettings.mqtt?.clientId;
+      if (!finalClientId || finalClientId.trim() === '') {
+        finalClientId = `smartplug_${Math.random().toString(16).slice(2, 10)}`;
+        console.log('🆕 生成隨機 ClientID:', finalClientId);
+      }
+      
+      // 更新設定：plugId 和當前的 MQTT 配置
+      const newSettings = {
+        ...currentSettings,
+        plugId: id,
+        mqtt: {
+          broker: mqttConfig.broker || currentSettings.mqtt?.broker || 'broker.emqx.io',
+          port: mqttConfig.port || currentSettings.mqtt?.port || '8083',
+          clientId: finalClientId,
+          username: mqttConfig.username || currentSettings.mqtt?.username || '',
+          password: mqttConfig.password || currentSettings.mqtt?.password || ''
+        }
+      };
 
+      console.log('📤 準備儲存的新設定:', newSettings);
+      
       const saveResponse = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSettings)
       });
 
-      if (!saveResponse.ok) throw new Error('儲存設定失敗');
+      if (!saveResponse.ok) {
+        const errorData = await saveResponse.json().catch(() => ({ error: '未知錯誤' }));
+        console.error('❌ 儲存失敗回應:', errorData);
+        throw new Error(`儲存設定失敗: ${errorData.error || saveResponse.statusText}`);
+      }
 
-      console.log('PlugID 已儲存到設定檔案:', id);
+      const successData = await saveResponse.json().catch(() => ({}));
+      console.log('✅ 儲存成功回應:', successData);
+      console.log('✅ PlugID 已儲存到設定檔案:', id);
       return true;
     } catch (error) {
-      console.error('儲存 PlugID 時發生錯誤:', error);
+      console.error('❌ 儲存 PlugID 時發生錯誤:', error);
       return false;
     }
   };

@@ -92,7 +92,7 @@ mqttClient.on('message', (topic, message) => {
             // Payload: {"voltage": 110}
             frontendData = {
                 type: 'sensor_data',
-                voltage: payload.voltage // 需確認前端是否有處理 voltage
+                voltage: payload.voltage
             };
         }
         else if (category === 'relay') {
