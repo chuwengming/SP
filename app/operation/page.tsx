@@ -126,35 +126,57 @@ export default function OperationPanel() {
 
   // 回復原廠設定
   const handleResetSettings = async () => {
-    if (!confirm('確定要回復原廠設定嗎？這將會重置所有設定為預設值。')) {
+    if (!confirm('確定要回復原廠設定嗎？這將會重置所有設定為預設值，包括設備名稱和繼電器名稱。')) {
       return;
     }
 
     try {
-      // 從原廠設定 API 獲取預設值
-      const factoryResponse = await fetch('/api/settings/factory');
-      if (!factoryResponse.ok) {
-        throw new Error('無法讀取原廠設定');
-      }
-      const factorySettings = await factoryResponse.json();
-
-      // 使用原廠設定值更新當前設定
-      const response = await fetch('/api/settings', {
+      console.log('🔄 開始回復原廠設定...');
+      
+      // 直接呼叫新的 POST /api/settings/factory API
+      const response = await fetch('/api/settings/factory', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(factorySettings)
+        headers: { 'Content-Type': 'application/json' }
       });
 
       const result = await response.json();
 
       if (response.ok && result.success) {
-        alert('已回復原廠設定！');
+        console.log('✅ 原廠設定回復成功:', result);
+        
+        // 顯示成功訊息
+        alert('原廠設定已成功回復！\n設備名稱和繼電器名稱已更新。');
+        
+        // 重新載入設定頁面
         loadSettings();
+        
+        // 更新繼電器名稱為原廠預設值 (Relay 1 ~ Relay 6)
+        // 這些更新會透過 WebSocket 自動接收，但為了確保即時性，我們也手動更新
+        const defaultRelays = [
+          { id: 0, name: 'Relay 1', state: false },
+          { id: 1, name: 'Relay 2', state: false },
+          { id: 2, name: 'Relay 3', state: false },
+          { id: 3, name: 'Relay 4', state: false },
+          { id: 4, name: 'Relay 5', state: false },
+          { id: 5, name: 'Relay 6', state: false }
+        ];
+        
+        setRelays(defaultRelays);
+        console.log('✅ 繼電器名稱已更新為原廠預設值');
+        
+        // 如果當前在主頁面，重新整理頁面狀態
+        if (currentPage === 'home') {
+          // 發送請求獲取最新感測器數據
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ command: 'get_sensors' }));
+          }
+        }
+        
       } else {
-        throw new Error(result.error || '回復失敗');
+        throw new Error(result.error || result.details || '回復失敗');
       }
     } catch (error: any) {
-      console.error('回復原廠設定失敗:', error);
+      console.error('❌ 回復原廠設定失敗:', error);
       alert('回復原廠設定失敗: ' + error.message);
     }
   };

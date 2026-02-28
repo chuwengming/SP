@@ -134,12 +134,27 @@ export default function LoginPage() {
     }
   };
 
-  // 儲存 PlugID 到設定檔案 (API)
-  const savePlugIdToSettings = async (id: string) => {
+  // 儲存 PlugID 和 MQTT 設定到設定檔案 (API)
+  const savePlugIdToSettings = async (id: string, mqttConfig: any) => {
     try {
-      // 簡單起見，讀取現有 settings 合併後寫回
-      // 注意：這裡依賴 useEffect 已經讀取過 settings
-      const newSettings = { ...settings, plugId: id };
+      // 讀取當前設定檔案，確保獲取完整的設定結構
+      const response = await fetch('/api/settings');
+      if (!response.ok) throw new Error('無法讀取設定檔案');
+      const currentSettings = await response.json();
+      
+      // 更新 plugId 和 MQTT 設定，保留所有其他設定
+      const newSettings = {
+        ...currentSettings,
+        plugId: id,
+        mqtt: {
+          ...currentSettings.mqtt,
+          broker: mqttConfig.broker,
+          port: mqttConfig.port,
+          clientId: mqttConfig.clientId,
+          username: mqttConfig.username || '',
+          password: mqttConfig.password || ''
+        }
+      };
 
       const saveResponse = await fetch('/api/settings', {
         method: 'POST',
@@ -147,12 +162,18 @@ export default function LoginPage() {
         body: JSON.stringify(newSettings)
       });
 
-      if (!saveResponse.ok) throw new Error('儲存設定失敗');
+      const result = await saveResponse.json();
+      if (!saveResponse.ok || !result.success) {
+        throw new Error(result.error || '儲存設定失敗');
+      }
 
-      console.log('PlugID 已儲存到設定檔案:', id);
+      console.log('PlugID 和 MQTT 設定已儲存到設定檔案:', {
+        plugId: id,
+        clientId: mqttConfig.clientId
+      });
       return true;
     } catch (error) {
-      console.error('儲存 PlugID 時發生錯誤:', error);
+      console.error('儲存 PlugID 和 MQTT 設定時發生錯誤:', error);
       return false;
     }
   };
@@ -170,8 +191,8 @@ export default function LoginPage() {
       return;
     }
 
-    // 先儲存 PlugID 到設定檔案
-    const saved = await savePlugIdToSettings(plugId);
+    // 先儲存 PlugID 和 MQTT 設定到設定檔案
+    const saved = await savePlugIdToSettings(plugId, mqttConfig);
     if (!saved) {
       alert('儲存 PlugID 失敗，請稍後再試');
       return;

@@ -7,5 +7,13 @@
         "password": ""
     },
     "plugName": "SmartPlug",
-    "loginPassword": "123456"
+    "loginPassword": "123456",
+    "relayNames": {
+        "relay1": "Relay 1",
+        "relay2": "Relay 2",
+        "relay3": "Relay 3",
+        "relay4": "Relay 4",
+        "relay5": "Relay 5",
+        "relay6": "Relay 6"
+    }
 }

@@ -9,7 +9,7 @@ const { initTemperatureLogger, startTemperatureLogging, getLoggerStatus } = requ
 const { initTimeSync, startPeriodicTimeSync } = require('./lib/ntp-client');
 
 const dev = process.env.NODE_ENV !== 'production';
-const hostname = '0.0.0.0';
+const hostname = '127.0.0.1';
 const port = process.env.PORT || 3000;
 
 const app = next({ dev, hostname, port });
