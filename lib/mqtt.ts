@@ -215,15 +215,6 @@ export async function connectMqtt(config: MqttConfig): Promise<{ success: boolea
         // 延遲發送初始化命令
         setTimeout(() => {
           if (client.connected) {
-            const requestTopic = MqttTopics.request(currentPlugId, currentClientId);
-            const requestPayload = JSON.stringify({ type: "getVoltage" });
-            client.publish(requestTopic, requestPayload, { qos: 1 });
-            console.log(`📤 已發送電壓請求 (getVoltage)`);
-          }
-        }, 1000);
-
-        setTimeout(() => {
-          if (client.connected) {
             const announceTopic = MqttTopics.announce(currentPlugId);
             const announcePayload = JSON.stringify({
               clientId: currentClientId,
@@ -236,7 +227,16 @@ export async function connectMqtt(config: MqttConfig): Promise<{ success: boolea
             client.publish(announceTopic, announcePayload, { qos: 1 });
             console.log(`📤 已發送 announce`);
           }
-        }, 1500);
+        }, 500);
+
+        setTimeout(() => {
+          if (client.connected) {
+            const requestTopic = MqttTopics.request(currentPlugId, currentClientId);
+            const requestPayload = JSON.stringify({ type: "getVoltage" });
+            client.publish(requestTopic, requestPayload, { qos: 1 });
+            console.log(`📤 已發送電壓請求 (getVoltage)`);
+          }
+        }, 1000);
 
         resolve({ success: true, message: 'MQTT 連線成功' });
       };

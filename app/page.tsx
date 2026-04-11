@@ -250,11 +250,11 @@ export default function LoginPage() {
         // 獲取靜態名稱
         fetchPlugName();
 
-        // 關鍵：延遲 1.5 秒後呼叫 API 獲取電壓
-        // 這是為了等待 MQTT Broker 發送 Retain 訊息，或等待訂閱生效
+        // 關鍵：延遲 2.5 秒後呼叫 API 獲取電壓
+        // 這是為了確保 ESP32 已經處理 announce 並發送完畢初始狀態
         setTimeout(() => {
           fetchVoltage();
-        }, 1500);
+        }, 2500);
 
       } else {
         setMqttStatus('disconnected');
