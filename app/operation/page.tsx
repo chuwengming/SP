@@ -72,36 +72,27 @@ export default function OperationPanel() {
   const handleSaveSettings = async () => {
     try {
       // 收集表單數據
+      // 先讀取現有設定，保留 plugId 與其他欄位
+      const currentSettings = await fetch('/api/settings').then(res => res.json());
       const formData = {
+        ...currentSettings,
         plugName: systemSettings.plugName.trim(),
-        loginPassword: systemSettings.loginPassword.trim(),
+        loginPassword: systemSettings.loginPassword.trim() || currentSettings.loginPassword,
         mqtt: {
           broker: systemSettings.mqttBroker.trim(),
           port: systemSettings.mqttPort.trim(),
-          clientId: systemSettings.mqttClientId.trim(),
+          clientId: currentSettings.mqtt?.clientId || 's4eb1262', // clientId 保留原設定值，不讓使用者覆寫為亂碼
           username: systemSettings.mqttUser.trim(),
-          password: systemSettings.mqttPwd.trim()
+          password: systemSettings.mqttPwd.trim() || currentSettings.mqtt?.password || ''
         }
       };
 
       // 驗證必要欄位
-      if (!formData.mqtt.broker || !formData.mqtt.port || !formData.mqtt.clientId) {
-        alert('請填寫 MQTT Broker、Port 和 ClientID');
+      if (!formData.mqtt.broker || !formData.mqtt.port) {
+        alert('請填寫 MQTT Broker 和 Port');
         return;
       }
 
-      // 如果密碼為空，表示不修改
-      if (!formData.loginPassword) {
-        // 從現有設定中取得密碼
-        const currentSettings = await fetch('/api/settings').then(res => res.json());
-        formData.loginPassword = currentSettings.loginPassword;
-      }
-
-      if (!formData.mqtt.password) {
-        // 從現有設定中取得密碼
-        const currentSettings = await fetch('/api/settings').then(res => res.json());
-        formData.mqtt.password = currentSettings.mqtt.password;
-      }
 
       const response = await fetch('/api/settings', {
         method: 'POST',
@@ -133,12 +124,13 @@ export default function OperationPanel() {
     try {
       console.log('🔄 開始回復原廠設定...');
 
-      // 直接呼叫新的 POST /api/settings/factory API
+      // 呼叫 POST /api/settings/factory API，需傳入 clientId 與 identity
       const clientId = sessionStorage.getItem('mqttClientId');
+      const identity = sessionStorage.getItem('mqttIdentity') || '';
       const response = await fetch('/api/settings/factory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId })
+        body: JSON.stringify({ clientId, identity })
       });
 
       const result = await response.json();
@@ -251,8 +243,16 @@ export default function OperationPanel() {
       plugId = 'default_plug';
     }
 
-    // 構建 WebSocket URL，包含 plugId 參數
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/operation?clientId=${encodeURIComponent(clientId)}&plugId=${encodeURIComponent(plugId)}`;
+    // 獲取 identity (邏輯身分，用作通訊權限驗證與 topic 組成)
+    let identity = '';
+    try {
+      identity = sessionStorage.getItem('mqttIdentity') || '';
+    } catch (e) {
+      console.error('讀取 sessionStorage (identity) 失敗:', e);
+    }
+
+    // 構建 WebSocket URL，包含 plugId 與 identity 參數
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/operation?clientId=${encodeURIComponent(clientId)}&plugId=${encodeURIComponent(plugId)}&identity=${encodeURIComponent(identity)}`;
 
     console.log('🔧 開始連接 WebSocket:', wsUrl);
 
@@ -397,10 +397,11 @@ export default function OperationPanel() {
 
       try {
         const clientId = sessionStorage.getItem('mqttClientId');
+        const identity = sessionStorage.getItem('mqttIdentity') || '';
         const response = await fetch('/api/relay/name', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, name: trimmedName, clientId })
+          body: JSON.stringify({ id, name: trimmedName, clientId, identity })
         });
 
         const result = await response.json();
@@ -609,10 +610,11 @@ export default function OperationPanel() {
                         type="text"
                         id="mqttClientId"
                         value={systemSettings.mqttClientId}
-                        onChange={(e) => handleInputChange('mqttClientId', e.target.value)}
-                        className="w-full px-3 py-2 sm:px-4 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm sm:text-base"
-                        placeholder="smartplug_random"
+                        readOnly
+                        className="w-full px-3 py-2 sm:px-4 sm:py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 text-sm sm:text-base cursor-not-allowed"
+                        placeholder="由系統自動管理"
                       />
+                      <p className="text-xs text-gray-400 mt-1">此欄位由系統自動管理，無需手動修改</p>
                     </div>
                   </div>
 

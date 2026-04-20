@@ -286,13 +286,13 @@ export function controlRelay(relayId: number, state: boolean, plugId: string = c
 }
 
 // 更新繼電器名稱
-export function updateRelayName(relayId: number, name: string, plugId: string = currentPlugId, clientId?: string): boolean {
-  if (!clientId) return false;
+export function updateRelayName(relayId: number, name: string, plugId: string = currentPlugId, clientId?: string, identity?: string): boolean {
+  if (!clientId || !identity) return false;
   const message = JSON.stringify({
     id: relayId,
     name: name
   });
-  const topic = `smartplug/${plugId}/${clientId}/name`;
+  const topic = `smartplug/${plugId}/${identity}/name`;
   return publishMqtt(topic, message, { qos: 1 }, clientId);
 }
 

@@ -7,13 +7,8 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const clientId = searchParams.get('clientId');
 
-  // 檢查 MQTT 是否連線
-  if (!getMqttStatus(clientId || undefined)) {
-    return NextResponse.json(
-      { error: 'MQTT 未連線' },
-      { status: 503 }
-    );
-  }
+  // 這裡不再強求驗證物理連線狀態，因為傳入的 clientId 可能是邏輯身分 (identity)
+  // 前端已經透過 /api/mqtt/status 自行確認了物理連線的存活，直接讀取並回傳快取值即可
 
   const plugName = getPlugName(clientId || undefined);
 

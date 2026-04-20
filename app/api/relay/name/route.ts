@@ -4,12 +4,12 @@ import { updateRelayName, getMqttClient } from '@/lib/mqtt-operation';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, name, clientId } = body;
+    const { id, name, clientId, identity } = body;
 
     // 驗證輸入
-    if (id === undefined || !name || !clientId) {
+    if (id === undefined || !name || !clientId || !identity) {
       return NextResponse.json(
-        { success: false, error: '缺少必要參數 (id, name, clientId)' },
+        { success: false, error: '缺少必要參數 (id, name, clientId, identity)' },
         { status: 400 }
       );
     }
@@ -37,10 +37,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`更新繼電器 ${id} 名稱為: ${name} (Client: ${clientId})`);
+    console.log(`更新繼電器 ${id} 名稱為: ${name} (Client: ${clientId}, Identity: ${identity})`);
 
     // 通過 MQTT 發送名稱更新
-    const success = updateRelayName(id, name, undefined, clientId);
+    const success = updateRelayName(id, name, undefined, clientId, identity);
 
     if (success) {
       return NextResponse.json({

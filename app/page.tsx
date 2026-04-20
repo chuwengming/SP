@@ -10,14 +10,18 @@ export default function LoginPage() {
   const [plugId, setPlugId] = useState('');
   const [plugIdError, setPlugIdError] = useState('');
 
+  // Identity (身分變數) 狀態
+  const [identity, setIdentity] = useState('');
+  const [identityError, setIdentityError] = useState('');
+
   // MQTT 連線狀態
   const [mqttStatus, setMqttStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [mqttConfig, setMqttConfig] = useState({
-    broker: 'broker.emqx.io',
-    port: '8083',
-    clientId: '', // 初始化為空，等待 useEffect 生成
-    username: '',
-    password: ''
+    broker: 's4eb1262.ala.cn-hangzhou.emqxsl.cn',
+    port: '8084',
+    clientId: 's4eb1262', // 技術連線 ID
+    username: 'chuwm',
+    password: 'chuwengming'
   });
 
   // 設定檔案
@@ -44,11 +48,10 @@ export default function LoginPage() {
   // MQTT 配置顯示切換
   const [showMqttConfig, setShowMqttConfig] = useState(true);
 
-  // PlugID 驗證函數
-  const validatePlugId = (id: string): string => {
-    if (id.length < 8) return '至少需要8個字元';
-    if (!/^[a-zA-Z0-9]+$/.test(id)) return '只能包含英文和數字，不允許中文及符號字元';
-    if (!/[a-zA-Z]/.test(id) || !/[0-9]/.test(id)) return '必須同時包含英文和數字';
+  // 身分變數驗證
+  const validateIdentity = (val: string): string => {
+    if (val.length < 2) return '身分變數至少需要 2 個字元';
+    if (!/^[a-zA-Z0-9_]+$/.test(val)) return '身分變數僅限英文、數字與下底線';
     return '';
   };
 
@@ -57,6 +60,12 @@ export default function LoginPage() {
     setPlugId(value);
     const error = validatePlugId(value);
     setPlugIdError(error);
+  };
+
+  // 處理 Identity 變更
+  const handleIdentityChange = (value: string) => {
+    setIdentity(value);
+    setIdentityError(validateIdentity(value));
   };
 
   // 讀取設定檔案與啟動連線狀態輪詢
@@ -73,13 +82,13 @@ export default function LoginPage() {
         const data = await response.json();
         setSettings(data);
 
-        // 更新 MQTT 配置初始值
+        // 更新 MQTT 配置初始值 (優先使用雲端固定值)
         setMqttConfig({
-          broker: data.mqtt?.broker || 'broker.emqx.io',
-          port: data.mqtt?.port || '8083',
-          clientId: data.mqtt?.clientId === 'smartplug_random' ? randomId : (data.mqtt?.clientId || randomId),
-          username: data.mqtt?.username || '',
-          password: data.mqtt?.password || ''
+          broker: data.mqtt?.broker || 's4eb1262.ala.cn-hangzhou.emqxsl.cn',
+          port: data.mqtt?.port || '8084',
+          clientId: data.mqtt?.clientId || 's4eb1262',
+          username: data.mqtt?.username || 'chuwm',
+          password: data.mqtt?.password || 'chuwengming'
         });
 
         // 檢查後端目前是否已連線
@@ -97,15 +106,20 @@ export default function LoginPage() {
     };
 
     const checkMqttStatus = async () => {
-      // 如果還沒有 clientId，先不檢查
-      if (!mqttConfig.clientId) return;
+      // 優先使用 sessionStorage 記錄的實際 session clientId
+      const cid = sessionStorage.getItem('mqttClientId') || mqttConfig.clientId;
+      if (!cid) return;
 
       try {
-        const response = await fetch(`/api/mqtt/status?clientId=${mqttConfig.clientId}`);
+        const response = await fetch(`/api/mqtt/status?clientId=${cid}`);
         const data = await response.json();
         if (data.connected) {
           setMqttStatus('connected');
           setShowMqttConfig(false);
+          // 如果已經連線，嘗試從 session 恢復 identity
+          const savedIdentity = sessionStorage.getItem('mqttIdentity');
+          if (savedIdentity) setIdentity(savedIdentity);
+
           fetchPlugName();
           fetchVoltage();
         } else {
@@ -139,8 +153,8 @@ export default function LoginPage() {
   const fetchVoltage = async () => {
     setVoltageLoading(true);
     try {
-      const cid = sessionStorage.getItem('mqttClientId');
-      const response = await fetch(`/api/voltage?clientId=${encodeURIComponent(cid || '')}`);
+      const identity = sessionStorage.getItem('mqttIdentity');
+      const response = await fetch(`/api/voltage?clientId=${encodeURIComponent(identity || '')}`);
       const data = await response.json();
 
       // 根據回傳值判斷顯示
@@ -165,7 +179,8 @@ export default function LoginPage() {
       if (!response.ok) throw new Error('無法讀取設定檔案');
       const currentSettings = await response.json();
 
-      // 更新 plugId 和 MQTT 設定，保留所有其他設定
+      // 更新 plugId 和 MQTT 連線參數，但【保留】設定檔中原有的 clientId
+      // 注意：mqttConfig.clientId 是 Next.js 動態產生的 session ID (臨時亂碼)，不應寫入設定檔
       const newSettings = {
         ...currentSettings,
         plugId: id,
@@ -173,7 +188,7 @@ export default function LoginPage() {
           ...currentSettings.mqtt,
           broker: mqttConfig.broker,
           port: mqttConfig.port,
-          clientId: mqttConfig.clientId,
+          clientId: currentSettings.mqtt?.clientId || mqttConfig.clientId, // 優先保留設定檔中的 clientId
           username: mqttConfig.username || '',
           password: mqttConfig.password || ''
         }
@@ -192,7 +207,7 @@ export default function LoginPage() {
 
       console.log('PlugID 和 MQTT 設定已儲存到設定檔案:', {
         plugId: id,
-        clientId: mqttConfig.clientId
+        clientId: newSettings.mqtt.clientId
       });
       return true;
     } catch (error) {
@@ -229,7 +244,10 @@ export default function LoginPage() {
       const response = await fetch('/api/mqtt/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mqttConfig)
+        body: JSON.stringify({
+          ...mqttConfig,
+          identity: identity // 傳遞身分變數
+        })
       });
 
       const data = await response.json();
@@ -241,6 +259,7 @@ export default function LoginPage() {
         // 保存連線資訊到 sessionStorage，供操作頁面使用
         try {
           sessionStorage.setItem('mqttClientId', mqttConfig.clientId);
+          sessionStorage.setItem('mqttIdentity', identity); // 新增 identity 儲存
           sessionStorage.setItem('plugId', plugId);
           console.log('連線資訊已保存到 sessionStorage');
         } catch (e) {
@@ -277,7 +296,9 @@ export default function LoginPage() {
 
     // 再次確保 Session 正確 (雙重保險)
     if (plugId) sessionStorage.setItem('plugId', plugId);
-    if (mqttConfig.clientId) sessionStorage.setItem('mqttClientId', mqttConfig.clientId);
+
+    // 取得真正的背景連線 ID
+    const actualClientId = sessionStorage.getItem('mqttClientId') || mqttConfig.clientId;
 
     setErrorMessage('');
     setLoginLoading(true);
@@ -288,7 +309,7 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           password: loginPassword,
-          clientId: mqttConfig.clientId
+          clientId: actualClientId // Login API 需要真正的 session 連線 ID 來驗證底層狀態
         })
       });
 
@@ -321,130 +342,76 @@ export default function LoginPage() {
           智能家居遠控系統
         </h1>
 
+        {/* Identity (身分變數) 輸入區 */}
+        <div className="mb-6">
+          <label className="block text-gray-700 font-medium mb-2">
+            身分變數 (Identity)
+          </label>
+          <input
+            type="text"
+            value={identity}
+            onChange={(e) => handleIdentityChange(e.target.value)}
+            placeholder="請輸入身分識別碼 (如 user1)"
+            className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
+            disabled={mqttStatus === 'connecting' || mqttStatus === 'connected'}
+          />
+          {identityError && (
+            <div className="text-red-600 text-sm mt-2">{identityError}</div>
+          )}
+        </div>
+
         {/* PlugID 輸入區 */}
         <div className="mb-6">
           <label className="block text-gray-700 font-medium mb-2">
-            PlugID (用於區分不同 ESP32 設備)
+            插座識別碼 (PlugID)
           </label>
           <input
             type="text"
             value={plugId}
             onChange={(e) => handlePlugIdChange(e.target.value)}
-            placeholder="至少8個字，限英文+數字之組合"
+            placeholder="請輸入設備 PlugID"
             className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
             disabled={mqttStatus === 'connecting' || mqttStatus === 'connected'}
           />
           {plugIdError && (
             <div className="text-red-600 text-sm mt-2">{plugIdError}</div>
           )}
-          {!plugIdError && plugId && mqttStatus === 'disconnected' && (
-            <div className="text-green-600 text-sm mt-2">✓ PlugID 格式正確</div>
-          )}
         </div>
 
-        {/* MQTT 連線配置區 */}
+        {/* MQTT 連線配置區 - 簡化顯示，隱藏細節 */}
         {showMqttConfig && (
-          <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-blue-900">MQTT 連線設定</h2>
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${mqttStatus === 'connected' ? 'bg-green-500 text-white' :
+              <h2 className="text-md font-semibold text-gray-700">雲端 MQTT 通道設定</h2>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${mqttStatus === 'connected' ? 'bg-green-500 text-white' :
                 mqttStatus === 'connecting' ? 'bg-yellow-500 text-white' :
                   'bg-gray-500 text-white'
                 }`}>
-                {mqttStatus === 'connected' ? '已連線' :
-                  mqttStatus === 'connecting' ? '連線中...' :
-                    '未連線'}
+                {mqttStatus === 'connected' ? '服務已就緒' :
+                  mqttStatus === 'connecting' ? '建立中...' :
+                    '未啟動'}
               </span>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  伺服器位址 *
-                </label>
-                <input
-                  type="text"
-                  value={mqttConfig.broker}
-                  onChange={(e) => setMqttConfig({ ...mqttConfig, broker: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  placeholder={settings ? settings.mqtt.broker : "broker.emqx.io"}
-                  disabled={mqttStatus === 'connecting'}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    連線埠號 *
-                  </label>
-                  <input
-                    type="text"
-                    value={mqttConfig.port}
-                    onChange={(e) => setMqttConfig({ ...mqttConfig, port: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    placeholder={settings ? settings.mqtt.port : "8083"}
-                    disabled={mqttStatus === 'connecting'}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Client ID *
-                  </label>
-                  <input
-                    type="text"
-                    value={mqttConfig.clientId}
-                    onChange={(e) => setMqttConfig({ ...mqttConfig, clientId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    placeholder={settings ? settings.mqtt.clientId : "client_id"}
-                    disabled={mqttStatus === 'connecting'}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  使用者名稱
-                </label>
-                <input
-                  type="text"
-                  value={mqttConfig.username}
-                  onChange={(e) => setMqttConfig({ ...mqttConfig, username: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  placeholder={settings ? (settings.mqtt.username || "選填") : "選填"}
-                  disabled={mqttStatus === 'connecting'}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  連線密碼
-                </label>
-                <input
-                  type="password"
-                  value={mqttConfig.password}
-                  onChange={(e) => setMqttConfig({ ...mqttConfig, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  placeholder={settings ? (settings.mqtt.password ? "******" : "選填") : "選填"}
-                  disabled={mqttStatus === 'connecting'}
-                />
-              </div>
-
-              <button
-                onClick={connectMqtt}
-                disabled={mqttStatus === 'connecting' || mqttStatus === 'connected'}
-                className={`w-full py-3 rounded-lg font-medium transition-opacity ${mqttStatus === 'connected'
-                  ? 'bg-green-500 text-white cursor-not-allowed'
-                  : mqttStatus === 'connecting'
-                    ? 'bg-yellow-500 text-white cursor-wait'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                  }`}
-              >
-                {mqttStatus === 'connected' ? '✓ 已連線' :
-                  mqttStatus === 'connecting' ? '連線中...' :
-                    '連線 MQTT'}
-              </button>
+            <div className="text-xs text-gray-400 mb-4 space-y-1">
+              <p>• 系統將自動根據 PlugID 建立專屬加密通道</p>
+              <p>• 目前伺服器：{mqttConfig.broker}</p>
             </div>
+
+            <button
+              onClick={connectMqtt}
+              disabled={mqttStatus === 'connecting' || mqttStatus === 'connected' || !identity || !plugId}
+              className={`w-full py-3 rounded-lg font-medium transition-all ${mqttStatus === 'connected'
+                ? 'bg-green-100 text-green-700 cursor-not-allowed border border-green-200'
+                : mqttStatus === 'connecting'
+                  ? 'bg-yellow-500 text-white cursor-wait'
+                  : 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-md hover:shadow-lg'
+                }`}
+            >
+              {mqttStatus === 'connected' ? '✓ 通道已建立' :
+                mqttStatus === 'connecting' ? '正在建立加密通道...' :
+                  '啟動連線服務'}
+            </button>
           </div>
         )}
 

@@ -7,16 +7,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const clientId = searchParams.get('clientId');
 
-  // 檢查 MQTT 是否連線
-  if (!getMqttStatus(clientId || undefined)) {
-    // 返回默認值，避免前端解析錯誤
-    console.warn('MQTT 未連線，返回默認電壓值');
-    return NextResponse.json({
-      voltage: 110,
-      pin: 2, // 模擬值
-      signal: 1 // 模擬值
-    });
-  }
+  // 這裡不再強求驗證物理連線狀態，因為傳入的 clientId 可能是邏輯身分 (identity)
+  // 前端已經透過 /api/mqtt/status 自行確認了物理連線的存活，直接讀取並回傳快取值即可
 
   const voltage = getVoltage(clientId || undefined);
 

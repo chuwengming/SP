@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { disconnectMqtt } from '@/lib/mqtt';
+import { disconnectMqtt, clearClientCache } from '@/lib/mqtt';
 
 export async function POST(request: NextRequest) {
   try {
     const { clientId } = await request.json();
     console.log(`收到登出請求: ${clientId}`);
+
+    // 清除 session 資料快取
+    if (clientId) clearClientCache(clientId);
 
     // 斷開指定的 MQTT 連線
     disconnectMqtt(clientId);

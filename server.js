@@ -280,7 +280,7 @@ function broadcastToPlug(plugId, data) {
 // ==========================================
 // 處理 WebSocket 訊息 (UI -> Server -> MQTT)
 // ==========================================
-function handleWsMessage(message, ws, clientId, plugId) {
+function handleWsMessage(message, ws, clientId, plugId, identity) {
     try {
         const data = JSON.parse(message);
         const mqttClient = mqttShared.getClient(clientId);
@@ -295,15 +295,13 @@ function handleWsMessage(message, ws, clientId, plugId) {
             return;
         }
 
-        console.log(`📨 WS收到指令 [${plugId}][${clientId}]:`, data.command);
+        console.log(`📨 WS收到指令 [${plugId}][${identity}]:`, data.command);
 
         switch (data.command) {
             case 'relay_control':
-                // 優先使用 relay_id 或 relayIndex
                 const rId = data.relay_id !== undefined ? data.relay_id : data.relayIndex;
                 if (rId !== undefined) {
-                    // 還原原始主題規範: smartplug/{plugId}/{clientId}/control
-                    const topic = `smartplug/${plugId}/${clientId}/control`;
+                    const topic = `smartplug/${plugId}/${identity}/control`;
                     const payload = JSON.stringify({
                         id: rId,
                         state: data.state ? "1" : "0"
@@ -317,8 +315,7 @@ function handleWsMessage(message, ws, clientId, plugId) {
             case 'set_relay_name':
                 const renId = data.relay_id !== undefined ? data.relay_id : data.relayIndex;
                 if (renId !== undefined) {
-                    // 還原原始主題規範: smartplug/{plugId}/{clientId}/name
-                    const nameTopic = `smartplug/${plugId}/${clientId}/name`;
+                    const nameTopic = `smartplug/${plugId}/${identity}/name`;
                     const namePayload = JSON.stringify({
                         id: renId,
                         name: data.name || data.newName
@@ -333,8 +330,7 @@ function handleWsMessage(message, ws, clientId, plugId) {
                 const reqTopic = `smartplug/${plugId}/get_status`;
                 mqttClient.publish(reqTopic, 'all');
 
-                // 相容舊版 sensor 數據請求
-                const legacyReqTopic = `smartplug/${plugId}/${clientId}/request`;
+                const legacyReqTopic = `smartplug/${plugId}/${identity}/request`;
                 mqttClient.publish(legacyReqTopic, JSON.stringify({ type: "getPlugName" }));
                 mqttClient.publish(legacyReqTopic, JSON.stringify({ type: "getVoltage" }));
                 break;
@@ -400,15 +396,16 @@ app.prepare().then(async () => {
             const url = new URL(request.url, `http://${request.headers.host}`);
             const clientId = url.searchParams.get('clientId') || `user_${Date.now()}`;
             const plugId = url.searchParams.get('plugId');
+            const identity = url.searchParams.get('identity') || 'unknown';
 
             if (!plugId) {
                 ws.close(1008, 'PlugID Required');
                 return;
             }
 
-            console.log(`🔌 新連線: User=[${clientId}] -> Plug=[${plugId}]`);
+            console.log(`🔌 新連線: User=[${clientId}] Identity=[${identity}] -> Plug=[${plugId}]`);
 
-            wsClients.set(clientId, { ws, plugId });
+            wsClients.set(clientId, { ws, plugId, identity });
             if (!plugClients.has(plugId)) {
                 plugClients.set(plugId, new Set());
             }
@@ -461,7 +458,7 @@ app.prepare().then(async () => {
             }
 
             ws.on('message', (message) => {
-                handleWsMessage(message.toString(), ws, clientId, plugId);
+                handleWsMessage(message.toString(), ws, clientId, plugId, identity);
             });
 
             ws.on('close', (code, reason) => {
